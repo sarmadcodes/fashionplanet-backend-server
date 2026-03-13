@@ -1,26 +1,29 @@
 const mongoose = require('mongoose');
 
 const commentSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  id: { type: String },
+  author: { type: String, required: true },
+  username: { type: String },
+  avatar: { type: String },
   text: { type: String, required: true, maxlength: 500 },
-}, { timestamps: true });
+  timestamp: { type: String, default: 'Just now' },
+}, { _id: false });
 
 const postSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  images: [{ type: String }],
+  userName: { type: String, required: true },
+  username: { type: String },
+  avatar: { type: String },
+  images: [{ type: String, required: true }],
   caption: { type: String, default: '', maxlength: 1000 },
-  likes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
-  comments: [commentSchema],
+  likes: { type: Number, default: 0 },
+  comments: { type: Number, default: 0 },
+  likedBy: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+  commentsList: [commentSchema],
+  liked: { type: Boolean, default: false },
+  isOwn: { type: Boolean, default: false },
+  date: { type: String, default: 'Just now' },
 }, { timestamps: true });
 
-postSchema.virtual('likesCount').get(function () {
-  return this.likes.length;
-});
-
-postSchema.virtual('commentsCount').get(function () {
-  return this.comments.length;
-});
-
-postSchema.set('toJSON', { virtuals: true });
-
 module.exports = mongoose.model('Post', postSchema);
+

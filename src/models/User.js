@@ -42,6 +42,7 @@ const userSchema = new mongoose.Schema({
     default: 'public',
   },
   styleTypes: [{ type: String }],
+  savedPosts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
   notificationPrefs: {
     push: { type: Boolean, default: true },
     email: { type: Boolean, default: false },
