@@ -18,6 +18,18 @@ const wardrobeItemSchema = new mongoose.Schema({
   worth: { type: Number, default: 0, min: 0 },
   image: { type: String, required: [true, 'Image is required'] },
   wearCount: { type: Number, default: 0 },
+  lastWorn: { type: Date, default: null },
+  tags: {
+    category: { type: String, default: '' },
+    subcategory: { type: String, default: '' },
+    colors: { type: [String], default: [] },
+    pattern: { type: String, default: '' },
+    fabric: { type: String, default: '' },
+    season: { type: [String], default: [] },
+    formality: { type: String, default: '' },
+    occasions: { type: [String], default: [] },
+    fit: { type: String, default: '' },
+  },
 }, { timestamps: true });
 
 module.exports = mongoose.model('WardrobeItem', wardrobeItemSchema);

@@ -1,6 +1,8 @@
 const WardrobeItem = require('../models/WardrobeItem');
 const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
+const AIEvent = require('../models/AIEvent');
+const { classifyWardrobeItem } = require('../services/aiService');
 
 const toWardrobeDto = (item) => ({
   id: item._id,
@@ -12,6 +14,8 @@ const toWardrobeDto = (item) => ({
   worth: item.worth,
   image: item.image,
   wearCount: item.wearCount,
+  lastWorn: item.lastWorn,
+  tags: item.tags || {},
   createdAt: item.createdAt,
 });
 
@@ -51,6 +55,21 @@ exports.addWardrobeItem = async (req, res, next) => {
       season,
       worth: Number(worth) || 0,
       image: imageUrl,
+    });
+
+    const tags = await classifyWardrobeItem({
+      imageUrl,
+      item: { name, category, color, season },
+    });
+
+    item.tags = tags;
+    await item.save();
+
+    await AIEvent.create({
+      userId: req.user._id,
+      type: 'item_tagged',
+      context: { itemId: item._id },
+      result: { tags },
     });
 
     const itemsCount = await WardrobeItem.countDocuments({ userId: req.user._id });

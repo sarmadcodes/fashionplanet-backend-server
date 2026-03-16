@@ -18,7 +18,7 @@ const toPostDto = (post, currentUserId) => {
 };
 
 // ─── Create Post ──────────────────────────────────────────────
-exports.createPost = async (req, res) => {
+exports.createPost = async (req, res, next) => {
   try {
     const userId = req.user._id;
     const rawCaption = req.body?.caption;
@@ -66,32 +66,32 @@ exports.createPost = async (req, res) => {
     await newPost.save();
     res.status(201).json({ success: true, data: toPostDto(newPost, userId) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
 // ─── Get All Feed Posts ───────────────────────────────────────
-exports.getFeedPosts = async (req, res) => {
+exports.getFeedPosts = async (req, res, next) => {
   try {
     const userId = req.user._id;
     const posts = await Post.find().sort({ createdAt: -1 }).limit(50);
     res.json({ success: true, data: posts.map((p) => toPostDto(p, userId)) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
-exports.getMyPosts = async (req, res) => {
+exports.getMyPosts = async (req, res, next) => {
   try {
     const userId = req.user._id;
     const posts = await Post.find({ userId }).sort({ createdAt: -1 });
     res.json({ success: true, data: posts.map((p) => toPostDto(p, userId)) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
-exports.updatePost = async (req, res) => {
+exports.updatePost = async (req, res, next) => {
   try {
     const { postId } = req.params;
     const { caption } = req.body;
@@ -115,11 +115,11 @@ exports.updatePost = async (req, res) => {
     await post.save();
     res.json({ success: true, data: toPostDto(post, userId) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
-exports.deletePost = async (req, res) => {
+exports.deletePost = async (req, res, next) => {
   try {
     const { postId } = req.params;
     const userId = req.user._id;
@@ -143,12 +143,12 @@ exports.deletePost = async (req, res) => {
 
     res.json({ success: true, message: 'Post deleted successfully' });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
 // ─── Like Post ────────────────────────────────────────────────
-exports.likePost = async (req, res) => {
+exports.likePost = async (req, res, next) => {
   try {
     const { postId } = req.params;
     const userId = req.user.id;
@@ -189,12 +189,12 @@ exports.likePost = async (req, res) => {
     await post.save();
     res.json({ success: true, data: toPostDto(post, userId) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
 // ─── Add Comment ──────────────────────────────────────────────
-exports.addComment = async (req, res) => {
+exports.addComment = async (req, res, next) => {
   try {
     const { postId } = req.params;
     const { text } = req.body;
@@ -244,12 +244,12 @@ exports.addComment = async (req, res) => {
     await post.save();
     res.json({ success: true, data: { post, comment: newComment } });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
 // ─── Get Notifications ────────────────────────────────────────
-exports.getNotifications = async (req, res) => {
+exports.getNotifications = async (req, res, next) => {
   try {
     const userId = req.user.id;
     const notifications = await Notification.find({ userId })
@@ -257,12 +257,12 @@ exports.getNotifications = async (req, res) => {
       .limit(50);
     res.json({ success: true, data: notifications });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
 // ─── Mark Notification as Read ────────────────────────────────
-exports.markAsRead = async (req, res) => {
+exports.markAsRead = async (req, res, next) => {
   try {
     const { notificationId } = req.params;
     const notification = await Notification.findByIdAndUpdate(
@@ -272,12 +272,12 @@ exports.markAsRead = async (req, res) => {
     );
     res.json({ success: true, data: notification });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
 // ─── Save Post ────────────────────────────────────────────────
-exports.savePost = async (req, res) => {
+exports.savePost = async (req, res, next) => {
   try {
     const { postId } = req.params;
     const userId = req.user.id;
@@ -299,18 +299,18 @@ exports.savePost = async (req, res) => {
     await user.save();
     res.json({ success: true, isSaved: !isSaved, data: user.savedPosts });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };
 
 // ─── Get Saved Posts ──────────────────────────────────────────
-exports.getSavedPosts = async (req, res) => {
+exports.getSavedPosts = async (req, res, next) => {
   try {
     const userId = req.user._id;
     const user = await User.findById(userId);
     const savedPosts = await Post.find({ _id: { $in: user.savedPosts || [] } });
     res.json({ success: true, data: savedPosts.map((p) => toPostDto(p, userId)) });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    next(err);
   }
 };

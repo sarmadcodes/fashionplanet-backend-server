@@ -1,8 +1,20 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const { notImplemented } = require('../controllers/aiController');
+const {
+	tagWardrobeItem,
+	generateOutfit,
+	logOutfitFeedback,
+	getAiStats,
+	getWardrobeInsights,
+} = require('../controllers/aiController');
+const { enforceDailyOutfitLimit } = require('../middleware/aiRateLimit');
 
-router.use(protect, notImplemented);
+router.use(protect);
+router.get('/stats', getAiStats);
+router.post('/tag-item/:itemId', tagWardrobeItem);
+router.post('/generate-outfit', enforceDailyOutfitLimit, generateOutfit);
+router.post('/feedback', logOutfitFeedback);
+router.post('/wardrobe-insights', getWardrobeInsights);
 
 module.exports = router;
