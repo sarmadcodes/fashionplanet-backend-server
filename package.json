@@ -10,6 +10,9 @@
   "author": "",
   "license": "ISC",
   "description": "",
+  "engines": {
+    "node": "23.x"
+  },
   "dependencies": {
     "axios": "^1.13.6",
     "bcryptjs": "^3.0.3",
