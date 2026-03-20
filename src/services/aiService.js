@@ -441,6 +441,88 @@ Rules:
   }
 };
 
+const generateOutfitImageWithAi = async ({
+  occasion = 'casual',
+  weather = {},
+  outfit = {},
+  itemDetails = [],
+}) => {
+  if (!openai) {
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: 'AI provider not configured',
+    };
+  }
+
+  const styleTitle = String(outfit?.styleTitle || `${occasion} look`).trim();
+  const weatherText = String(weather?.description || weather?.condition || 'unknown weather').trim();
+  const weatherTemp = Number.isFinite(Number(weather?.temp)) ? `${Math.round(Number(weather.temp))}C` : 'unknown temp';
+
+  const garments = Array.isArray(itemDetails)
+    ? itemDetails
+      .slice(0, 6)
+      .map((item) => {
+        const color = item?.color ? ` in ${item.color}` : '';
+        const category = item?.category ? ` (${item.category})` : '';
+        return `- ${item?.name || 'wardrobe piece'}${color}${category}`;
+      })
+      .join('\n')
+    : '';
+
+  const prompt = [
+    'Create a single photorealistic full-body fashion editorial image of one model wearing this outfit.',
+    `Style direction: ${styleTitle}.`,
+    `Occasion: ${occasion}.`,
+    `Weather context: ${weatherText} at around ${weatherTemp}.`,
+    'Outfit pieces to include:',
+    garments || '- Coordinated top, bottom, and shoes matching the style direction.',
+    'Requirements:',
+    '- show a complete outfit from head to toe',
+    '- modern street style photography, natural lighting',
+    '- no collage, no split panels, no text, no watermark, no logos',
+    '- one final image only',
+  ].join('\n');
+
+  try {
+    const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+    const response = await openai.images.generate({
+      model,
+      prompt,
+      size: '1024x1024',
+    });
+
+    const first = response?.data?.[0] || null;
+    if (typeof first?.url === 'string' && first.url.trim()) {
+      return {
+        image: first.url.trim(),
+        isFallback: false,
+        fallbackReason: null,
+      };
+    }
+
+    if (typeof first?.b64_json === 'string' && first.b64_json.trim()) {
+      return {
+        image: `data:image/png;base64,${first.b64_json.trim()}`,
+        isFallback: false,
+        fallbackReason: null,
+      };
+    }
+
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: 'AI image response missing image payload',
+    };
+  } catch {
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: 'AI image generation failed',
+    };
+  }
+};
+
 const generateInsightsWithAi = async (summary) => {
   const fallback = {
     insights: ['Your wardrobe usage data is still growing. Keep logging outfits for better insights.'],
@@ -496,6 +578,7 @@ module.exports = {
   isAiConfigured,
   classifyWardrobeItem,
   generateOutfitWithAi,
+  generateOutfitImageWithAi,
   generateInsightsWithAi,
   buildRuleBasedOutfit,
 };

@@ -5,6 +5,7 @@ const {
   isAiConfigured,
   classifyWardrobeItem,
   generateOutfitWithAi,
+  generateOutfitImageWithAi,
   generateInsightsWithAi,
 } = require('../services/aiService');
 const { getWeather } = require('../services/weatherService');
@@ -136,12 +137,24 @@ exports.generateOutfit = async (req, res, next) => {
       : [];
 
     const fullItems = wardrobe.filter((w) => itemIds.includes(String(w._id)));
+    const aiImage = await generateOutfitImageWithAi({
+      occasion: String(occasion || 'casual').toLowerCase(),
+      weather,
+      outfit: aiResult?.outfit || {},
+      itemDetails: fullItems,
+    });
+
+    if (!isPrefetch && (aiImage?.isFallback || !aiImage?.image)) {
+      return next(new ApiError('AI image generation service is temporarily unavailable. Please try again shortly.', 502));
+    }
 
     const responsePayload = {
       outfit: {
         ...aiResult.outfit,
         itemDetails: fullItems.map((item) => toWardrobePromptItem(item)),
       },
+      generatedImage: aiImage?.image || null,
+      imageFallbackReason: aiImage?.fallbackReason || null,
       tips: aiResult.tips || [],
       isFallback: Boolean(aiResult.isFallback),
       fallbackReason: aiResult.fallbackReason || null,
