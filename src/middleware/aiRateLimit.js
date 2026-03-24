@@ -13,7 +13,7 @@ const enforceDailyOutfitLimit = async (req, res, next) => {
 
     const count = await AIEvent.countDocuments({
       userId: req.user._id,
-      type: 'generate_outfit',
+      type: { $in: ['generate_outfit', 'generate_avatar'] },
       createdAt: { $gte: windowStart },
     });
 

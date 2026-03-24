@@ -1,5 +1,7 @@
 const WeekPlan = require('../models/WeekPlan');
 const ApiError = require('../utils/ApiError');
+const { POINTS_CONFIG } = require('../utils/pointsHelper');
+const { grantPoints } = require('../services/rewardService');
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -73,6 +75,22 @@ exports.toggleWeekPlanItem = async (req, res, next) => {
 
     target.status = target.status === 'ready' ? 'pending' : 'ready';
     await plan.save();
+
+    if (target.status === 'ready') {
+      const allItems = DAYS.flatMap((d) => plan.days?.[d] || []);
+      const hasItems = allItems.length > 0;
+      const allReady = hasItems && allItems.every((item) => item.status === 'ready');
+
+      if (allReady) {
+        const weekKey = new Date(plan.weekOf).toISOString().slice(0, 10);
+        await grantPoints({
+          userId: req.user._id,
+          action: `Completed weekly plan (${weekKey})`,
+          points: POINTS_CONFIG.COMPLETE_WEEK_PLAN,
+          uniqueAction: true,
+        });
+      }
+    }
 
     res.status(200).json({ success: true, item: { id: target._id, status: target.status } });
   } catch (error) {

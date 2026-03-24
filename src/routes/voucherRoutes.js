@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/authMiddleware');
-const { notImplemented } = require('../controllers/voucherController');
+const { getVouchers, redeemVoucher } = require('../controllers/voucherController');
 
-router.use(protect, notImplemented);
+router.use(protect);
+router.get('/', getVouchers);
+router.post('/:voucherId/redeem', redeemVoucher);
 
 module.exports = router;

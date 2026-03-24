@@ -55,6 +55,11 @@ const userSchema = new mongoose.Schema({
     dataSharing: { type: Boolean, default: false },
   },
   isActive: { type: Boolean, default: true },
+  role: {
+    type: String,
+    enum: ['user', 'admin'],
+    default: 'user',
+  },
   lastLogin: { type: Date, default: Date.now },
 }, { timestamps: true });
 

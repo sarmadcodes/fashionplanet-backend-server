@@ -17,6 +17,7 @@ const sanitizeUser = (user) => ({
   notificationPrefs: user.notificationPrefs,
   privacyPrefs: user.privacyPrefs,
   styleTypes: user.styleTypes,
+  role: user.role,
   createdAt: user.createdAt,
 });
 
@@ -33,7 +34,13 @@ exports.register = async (req, res, next) => {
       return next(new ApiError('An account with this email already exists', 400));
     }
 
-    const user = await User.create({ fullName, email, password });
+    const existingUsersCount = await User.countDocuments();
+    const user = await User.create({
+      fullName,
+      email,
+      password,
+      role: existingUsersCount === 0 ? 'admin' : 'user',
+    });
     const token = generateToken(user._id);
 
     res.status(201).json({
@@ -73,6 +80,9 @@ exports.login = async (req, res, next) => {
     await user.save({ validateBeforeSave: false });
 
     const token = generateToken(user._id);
+
+    res.set('Cache-Control', 'no-store');
+    res.set('Pragma', 'no-cache');
 
     res.status(200).json({
       success: true,

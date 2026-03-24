@@ -2,6 +2,8 @@ const Post = require('../models/Post');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const mongoose = require('mongoose');
+const { POINTS_CONFIG } = require('../utils/pointsHelper');
+const { grantPoints } = require('../services/rewardService');
 
 const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
@@ -64,6 +66,14 @@ exports.createPost = async (req, res, next) => {
     });
 
     await newPost.save();
+
+    await grantPoints({
+      userId,
+      action: `Uploaded outfit photo (${newPost._id})`,
+      points: POINTS_CONFIG.CREATE_POST,
+      uniqueAction: true,
+    });
+
     res.status(201).json({ success: true, data: toPostDto(newPost, userId) });
   } catch (err) {
     next(err);
@@ -171,6 +181,24 @@ exports.likePost = async (req, res, next) => {
       if (!post.likedBy) post.likedBy = [];
       post.likedBy.push(userId);
       post.likes += 1;
+
+      if (post.likes === 10) {
+        await grantPoints({
+          userId: post.userId,
+          action: `Post reached 10 likes (${post._id})`,
+          points: POINTS_CONFIG.POST_REACH_10_LIKES,
+          uniqueAction: true,
+        });
+      }
+
+      if (post.likes === 50) {
+        await grantPoints({
+          userId: post.userId,
+          action: `Post reached 50 likes (${post._id})`,
+          points: POINTS_CONFIG.POST_REACH_50_LIKES,
+          uniqueAction: true,
+        });
+      }
 
       // Create notification if not own post
       if (post.userId.toString() !== userId) {

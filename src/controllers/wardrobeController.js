@@ -3,6 +3,8 @@ const User = require('../models/User');
 const ApiError = require('../utils/ApiError');
 const AIEvent = require('../models/AIEvent');
 const { classifyWardrobeItem } = require('../services/aiService');
+const { POINTS_CONFIG } = require('../utils/pointsHelper');
+const { grantPoints } = require('../services/rewardService');
 
 const toWardrobeDto = (item) => ({
   id: item._id,
@@ -74,6 +76,22 @@ exports.addWardrobeItem = async (req, res, next) => {
 
     const itemsCount = await WardrobeItem.countDocuments({ userId: req.user._id });
     await User.findByIdAndUpdate(req.user._id, { itemsCount });
+
+    await grantPoints({
+      userId: req.user._id,
+      action: `Added wardrobe item (${item._id})`,
+      points: POINTS_CONFIG.ADD_WARDROBE_ITEM,
+      uniqueAction: true,
+    });
+
+    if (itemsCount > 0 && itemsCount % 5 === 0) {
+      await grantPoints({
+        userId: req.user._id,
+        action: `Added 5 wardrobe items milestone (${itemsCount})`,
+        points: POINTS_CONFIG.ADD_5_WARDROBE_ITEMS,
+        uniqueAction: true,
+      });
+    }
 
     res.status(201).json({ success: true, item: toWardrobeDto(item) });
   } catch (error) {

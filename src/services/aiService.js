@@ -284,6 +284,7 @@ const generateOutfitWithAi = async ({
   wardrobe = [],
   occasion = 'casual',
   weather = {},
+  preferredWeather = null,
   recentCombinationKeys = [],
   recentItemIds = [],
 }) => {
@@ -330,6 +331,7 @@ const generateOutfitWithAi = async ({
           content: `Generate an outfit from this wardrobe.
 Occasion: ${occasion}
 Weather: ${weather?.temp ?? 'unknown'}C, ${weather?.description || weather?.condition || 'unknown'}
+Preferred weather tab: ${preferredWeather || 'none'}
 
 Wardrobe:
 ${JSON.stringify(wardrobeSummary, null, 2)}
@@ -444,6 +446,7 @@ Rules:
 const generateOutfitImageWithAi = async ({
   occasion = 'casual',
   weather = {},
+  preferredWeather = null,
   outfit = {},
   itemDetails = [],
 }) => {
@@ -458,67 +461,355 @@ const generateOutfitImageWithAi = async ({
   const styleTitle = String(outfit?.styleTitle || `${occasion} look`).trim();
   const weatherText = String(weather?.description || weather?.condition || 'unknown weather').trim();
   const weatherTemp = Number.isFinite(Number(weather?.temp)) ? `${Math.round(Number(weather.temp))}C` : 'unknown temp';
+  const preferredWeatherText = preferredWeather ? String(preferredWeather).trim() : null;
 
   const garments = Array.isArray(itemDetails)
     ? itemDetails
       .slice(0, 6)
       .map((item) => {
-        const color = item?.color ? ` in ${item.color}` : '';
-        const category = item?.category ? ` (${item.category})` : '';
-        return `- ${item?.name || 'wardrobe piece'}${color}${category}`;
+        const safeName = String(item?.name || 'wardrobe piece')
+          .replace(/[^a-zA-Z0-9\s-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 40);
+        const safeColor = String(item?.color || '')
+          .replace(/[^a-zA-Z\s-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 20);
+        const safeCategory = String(item?.category || '')
+          .replace(/[^a-zA-Z\s-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 20);
+
+        const color = safeColor ? ` in ${safeColor}` : '';
+        const category = safeCategory ? ` (${safeCategory})` : '';
+        return `- ${safeName || 'wardrobe piece'}${color}${category}`;
       })
       .join('\n')
     : '';
 
+  const genderMode = String(process.env.OPENAI_IMAGE_GENDER_MODE || 'mixed').trim().toLowerCase();
+  const targetModelGender = genderMode === 'male'
+    ? 'male'
+    : genderMode === 'female'
+      ? 'female'
+      : (Date.now() % 2 === 0 ? 'male' : 'female');
+
+  const modelLine = targetModelGender === 'male'
+    ? 'Use one adult male model.'
+    : targetModelGender === 'female'
+      ? 'Use one adult female model.'
+      : 'Use one adult model.';
+
   const prompt = [
     'Create a single photorealistic full-body fashion editorial image of one model wearing this outfit.',
+    modelLine,
     `Style direction: ${styleTitle}.`,
     `Occasion: ${occasion}.`,
     `Weather context: ${weatherText} at around ${weatherTemp}.`,
+    preferredWeatherText ? `Prioritize visual styling for selected weather tab: ${preferredWeatherText}.` : null,
     'Outfit pieces to include:',
     garments || '- Coordinated top, bottom, and shoes matching the style direction.',
     'Requirements:',
     '- show a complete outfit from head to toe',
     '- modern street style photography, natural lighting',
     '- no collage, no split panels, no text, no watermark, no logos',
+    '- no explicit content, no violence, no suggestive pose',
     '- one final image only',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
+
+  const safetyFallbackPrompt = [
+    'Create one safe, neutral, photorealistic full-body fashion photo of one adult model.',
+    modelLine,
+    `Style direction: ${styleTitle}.`,
+    `Occasion: ${occasion}.`,
+    preferredWeatherText ? `Weather: ${preferredWeatherText}.` : null,
+    'Use simple modest casual styling with top, bottom, and shoes only.',
+    'No logos, no text, no brand marks, no skin exposure emphasis, no suggestive pose, no violence.',
+    'One image only, clean studio or street background, natural lighting.',
+  ].filter(Boolean).join('\n');
+
+  const isSafetyRejection = (error) => {
+    const text = String(
+      error?.error?.message
+      || error?.message
+      || error?.statusText
+      || ''
+    ).toLowerCase();
+    return text.includes('safety system') || text.includes('rejected') || text.includes('not allowed');
+  };
+
+  const configuredModel = String(process.env.OPENAI_IMAGE_MODEL || '').trim();
+  const parseBool = (value, fallback = false) => {
+    const v = String(value ?? '').trim().toLowerCase();
+    if (!v) return fallback;
+    return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+  };
+
+  const fastMode = parseBool(process.env.OPENAI_IMAGE_FAST_MODE, true);
+  const allowModelFallback = parseBool(process.env.OPENAI_IMAGE_ALLOW_FALLBACK, false);
+  const defaultSize = String(process.env.OPENAI_IMAGE_SIZE || (fastMode ? '512x512' : '1024x1024')).trim();
+  const configuredQuality = String(process.env.OPENAI_IMAGE_QUALITY || '').trim();
+
+  const fallbackCandidates = fastMode
+    ? ['dall-e-2', 'gpt-image-1', 'dall-e-3']
+    : ['gpt-image-1', 'dall-e-3', 'dall-e-2'];
+
+  const modelCandidates = allowModelFallback
+    ? Array.from(new Set([configuredModel, ...fallbackCandidates].filter(Boolean)))
+    : [configuredModel || fallbackCandidates[0]];
 
   try {
-    const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
-    const response = await openai.images.generate({
-      model,
-      prompt,
-      size: '1024x1024',
-    });
+    let lastFailure = 'AI image generation failed';
 
-    const first = response?.data?.[0] || null;
-    if (typeof first?.url === 'string' && first.url.trim()) {
-      return {
-        image: first.url.trim(),
-        isFallback: false,
-        fallbackReason: null,
-      };
-    }
+    for (const model of modelCandidates) {
+      try {
+        const imagePayload = {
+          model,
+          prompt,
+          size: defaultSize,
+        };
 
-    if (typeof first?.b64_json === 'string' && first.b64_json.trim()) {
-      return {
-        image: `data:image/png;base64,${first.b64_json.trim()}`,
-        isFallback: false,
-        fallbackReason: null,
-      };
+        if (configuredQuality) {
+          imagePayload.quality = configuredQuality;
+        }
+
+        let response;
+        try {
+          response = await openai.images.generate(imagePayload);
+        } catch (firstError) {
+          if (isSafetyRejection(firstError)) {
+            const safeRetryPayload = {
+              model,
+              prompt: safetyFallbackPrompt,
+              size: defaultSize,
+            };
+            response = await openai.images.generate(safeRetryPayload);
+          } else if (configuredQuality) {
+            const retryPayload = {
+              model,
+              prompt,
+              size: defaultSize,
+            };
+            response = await openai.images.generate(retryPayload);
+          } else {
+            throw firstError;
+          }
+        }
+
+        const first = response?.data?.[0] || null;
+        if (typeof first?.url === 'string' && first.url.trim()) {
+          return {
+            image: first.url.trim(),
+            isFallback: false,
+            fallbackReason: null,
+          };
+        }
+
+        if (typeof first?.b64_json === 'string' && first.b64_json.trim()) {
+          return {
+            image: `data:image/png;base64,${first.b64_json.trim()}`,
+            isFallback: false,
+            fallbackReason: null,
+          };
+        }
+
+        lastFailure = `Image response missing payload for model ${model} (size ${defaultSize})`;
+      } catch (error) {
+        const providerMessage = String(
+          error?.error?.message
+          || error?.message
+          || error?.statusText
+          || 'unknown provider error'
+        ).trim();
+        lastFailure = `Model ${model} failed: ${providerMessage}`;
+      }
     }
 
     return {
       image: null,
       isFallback: true,
-      fallbackReason: 'AI image response missing image payload',
+      fallbackReason: lastFailure,
     };
-  } catch {
+  } catch (error) {
     return {
       image: null,
       isFallback: true,
-      fallbackReason: 'AI image generation failed',
+      fallbackReason: String(error?.message || 'AI image generation failed').trim(),
+    };
+  }
+};
+
+const generateStyleAvatarImageWithAi = async ({
+  styleTypes = [],
+}) => {
+  if (!openai) {
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: 'AI provider not configured',
+    };
+  }
+
+  const styleList = Array.isArray(styleTypes)
+    ? styleTypes
+      .map((s) => String(s || '').trim())
+      .filter(Boolean)
+      .slice(0, 6)
+    : [];
+
+  if (styleList.length === 0) {
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: 'No style types provided',
+    };
+  }
+
+  const genderMode = String(process.env.OPENAI_IMAGE_GENDER_MODE || 'mixed').trim().toLowerCase();
+  const targetModelGender = genderMode === 'male'
+    ? 'male'
+    : genderMode === 'female'
+      ? 'female'
+      : (Date.now() % 2 === 0 ? 'male' : 'female');
+
+  const modelLine = targetModelGender === 'male'
+    ? 'Use one adult male model.'
+    : targetModelGender === 'female'
+      ? 'Use one adult female model.'
+      : 'Use one adult model.';
+
+  const prompt = [
+    'Create one photorealistic full-body fashion avatar image of a single model.',
+    modelLine,
+    `Blend these selected style directions into one coherent look: ${styleList.join(', ')}.`,
+    'Requirements:',
+    '- modern fashion editorial quality',
+    '- complete outfit from head to toe',
+    '- clean realistic background with natural lighting',
+    '- no collage, no split panels, no text, no watermark, no logo',
+    '- no explicit content, no violence, no suggestive pose',
+    '- output one final image only',
+  ].join('\n');
+
+  const safetyFallbackPrompt = [
+    'Create one safe, neutral, photorealistic full-body fashion photo of one adult model.',
+    modelLine,
+    `Style direction: ${styleList.join(', ')}.`,
+    'Use modest casual styling with top, bottom, and shoes only.',
+    'No logos, no text, no brand marks, no skin exposure emphasis, no suggestive pose, no violence.',
+    'One image only, clean studio or street background, natural lighting.',
+  ].join('\n');
+
+  const isSafetyRejection = (error) => {
+    const text = String(
+      error?.error?.message
+      || error?.message
+      || error?.statusText
+      || ''
+    ).toLowerCase();
+    return text.includes('safety system') || text.includes('rejected') || text.includes('not allowed');
+  };
+
+  const configuredModel = String(process.env.OPENAI_IMAGE_MODEL || '').trim();
+  const parseBool = (value, fallback = false) => {
+    const v = String(value ?? '').trim().toLowerCase();
+    if (!v) return fallback;
+    return v === '1' || v === 'true' || v === 'yes' || v === 'on';
+  };
+
+  const fastMode = parseBool(process.env.OPENAI_IMAGE_FAST_MODE, true);
+  const allowModelFallback = parseBool(process.env.OPENAI_IMAGE_ALLOW_FALLBACK, false);
+  const defaultSize = String(process.env.OPENAI_IMAGE_SIZE || (fastMode ? '512x512' : '1024x1024')).trim();
+  const configuredQuality = String(process.env.OPENAI_IMAGE_QUALITY || '').trim();
+
+  const fallbackCandidates = fastMode
+    ? ['dall-e-2', 'gpt-image-1', 'dall-e-3']
+    : ['gpt-image-1', 'dall-e-3', 'dall-e-2'];
+
+  const modelCandidates = allowModelFallback
+    ? Array.from(new Set([configuredModel, ...fallbackCandidates].filter(Boolean)))
+    : [configuredModel || fallbackCandidates[0]];
+
+  try {
+    let lastFailure = 'AI style avatar generation failed';
+
+    for (const model of modelCandidates) {
+      try {
+        const imagePayload = {
+          model,
+          prompt,
+          size: defaultSize,
+        };
+
+        if (configuredQuality) {
+          imagePayload.quality = configuredQuality;
+        }
+
+        let response;
+        try {
+          response = await openai.images.generate(imagePayload);
+        } catch (firstError) {
+          if (isSafetyRejection(firstError)) {
+            const safeRetryPayload = {
+              model,
+              prompt: safetyFallbackPrompt,
+              size: defaultSize,
+            };
+            response = await openai.images.generate(safeRetryPayload);
+          } else if (configuredQuality) {
+            const retryPayload = {
+              model,
+              prompt,
+              size: defaultSize,
+            };
+            response = await openai.images.generate(retryPayload);
+          } else {
+            throw firstError;
+          }
+        }
+
+        const first = response?.data?.[0] || null;
+        if (typeof first?.url === 'string' && first.url.trim()) {
+          return {
+            image: first.url.trim(),
+            isFallback: false,
+            fallbackReason: null,
+          };
+        }
+
+        if (typeof first?.b64_json === 'string' && first.b64_json.trim()) {
+          return {
+            image: `data:image/png;base64,${first.b64_json.trim()}`,
+            isFallback: false,
+            fallbackReason: null,
+          };
+        }
+
+        lastFailure = `Image response missing payload for model ${model} (size ${defaultSize})`;
+      } catch (error) {
+        const providerMessage = String(
+          error?.error?.message
+          || error?.message
+          || error?.statusText
+          || 'unknown provider error'
+        ).trim();
+        lastFailure = `Model ${model} failed: ${providerMessage}`;
+      }
+    }
+
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: lastFailure,
+    };
+  } catch (error) {
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: String(error?.message || 'AI style avatar generation failed').trim(),
     };
   }
 };
@@ -579,6 +870,7 @@ module.exports = {
   classifyWardrobeItem,
   generateOutfitWithAi,
   generateOutfitImageWithAi,
+  generateStyleAvatarImageWithAi,
   generateInsightsWithAi,
   buildRuleBasedOutfit,
 };

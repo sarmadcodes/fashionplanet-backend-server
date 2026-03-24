@@ -11,12 +11,24 @@ const errorHandler = require('./src/middleware/errorHandler');
 
 dotenv.config();
 connectDB();
+const isDevelopment = process.env.NODE_ENV === 'development';
 
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
+const adminPanelRoot = path.join(__dirname, '..', 'fashionplanet-adminpanel');
 
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'script-src': [
+        "'self'",
+        ...(isDevelopment ? ["'unsafe-eval'"] : []),
+      ],
+    },
+  },
+}));
 app.use(compression());
 app.use(cors({
   origin: '*',
@@ -31,9 +43,20 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Too many login attempts. Please try again later.' },
+});
+app.use('/api/auth', authLimiter);
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+app.get('/admin', (req, res) => {
+  res.sendFile(path.join(adminPanelRoot, 'index.html'));
+});
+app.use('/admin', express.static(adminPanelRoot));
 
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
@@ -63,6 +86,7 @@ app.use('/api/insights', require('./src/routes/insightRoutes'));
 app.use('/api/weekplan', require('./src/routes/weekplanRoutes'));
 app.use('/api/ai', require('./src/routes/aiRoutes'));
 app.use('/api/home', require('./src/routes/homeRoutes'));
+app.use('/api/admin', require('./src/routes/adminRoutes'));
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });

@@ -4,6 +4,7 @@ const { protect } = require('../middleware/authMiddleware');
 const {
 	tagWardrobeItem,
 	generateOutfit,
+	generateStyleAvatar,
 	logOutfitFeedback,
 	getAiStats,
 	getWardrobeInsights,
@@ -14,6 +15,7 @@ router.use(protect);
 router.get('/stats', getAiStats);
 router.post('/tag-item/:itemId', tagWardrobeItem);
 router.post('/generate-outfit', enforceDailyOutfitLimit, generateOutfit);
+router.post('/generate-style-avatar', enforceDailyOutfitLimit, generateStyleAvatar);
 router.post('/feedback', logOutfitFeedback);
 router.post('/wardrobe-insights', getWardrobeInsights);
 

@@ -4,12 +4,14 @@ const WardrobeItem = require('../models/WardrobeItem');
 const toOutfitDto = (item) => ({
   id: item._id,
   title: item.title,
-  brand: item.brand || 'Custom',
-  category: item.category || 'Personal',
+  brand: item.brand || (item.source === 'ai' ? 'AI Generated' : 'Custom'),
+  category: item.category || (item.source === 'ai' ? 'AI Outfit' : 'Personal'),
   color: item.color || 'Mixed',
-  season: item.season || 'All Season',
+  season: item.season || item.aiMeta?.preferredWeather || 'All Season',
   image: item.image,
   tags: item.tags || [],
+  source: item.source || 'manual',
+  aiMeta: item.aiMeta || null,
   createdAt: item.createdAt,
 });
 
@@ -42,7 +44,7 @@ exports.getOutfits = async (req, res, next) => {
 
 exports.getRecentOutfits = async (req, res, next) => {
   try {
-    const outfits = await Outfit.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(8);
+    const outfits = await Outfit.find({ userId: req.user._id, source: { $ne: 'ai' } }).sort({ createdAt: -1 }).limit(8);
 
     if (outfits.length > 0) {
       return res.status(200).json({ success: true, outfits: outfits.map(toOutfitDto) });
@@ -62,6 +64,15 @@ exports.getRecentOutfits = async (req, res, next) => {
     }));
 
     return res.status(200).json({ success: true, outfits: fallbackOutfits.map(toOutfitDto) });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getAiOutfits = async (req, res, next) => {
+  try {
+    const outfits = await Outfit.find({ userId: req.user._id, source: 'ai' }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, outfits: outfits.map(toOutfitDto) });
   } catch (error) {
     next(error);
   }

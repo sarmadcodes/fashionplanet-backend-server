@@ -4,14 +4,16 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "promote-admin": "node scripts/promoteAdmin.js",
+    "create-admin": "node scripts/createAdmin.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "engines": {
-    "node": "23.x"
+    "node": "22.x"
   },
   "dependencies": {
     "axios": "^1.13.6",

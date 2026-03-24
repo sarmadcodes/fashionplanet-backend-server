@@ -20,7 +20,7 @@ exports.getHomeData = async (req, res, next) => {
   try {
     const [wardrobeCount, outfits] = await Promise.all([
       WardrobeItem.countDocuments({ userId: req.user._id }),
-      Outfit.find({ userId: req.user._id }).sort({ createdAt: -1 }).limit(8),
+      Outfit.find({ userId: req.user._id, source: { $ne: 'ai' } }).sort({ createdAt: -1 }).limit(8),
     ]);
 
     let recentOutfits = outfits.map(formatOutfit);
