@@ -4,6 +4,8 @@ const Post = require('../models/Post');
 const WardrobeItem = require('../models/WardrobeItem');
 const Voucher = require('../models/Voucher');
 const RewardHistory = require('../models/RewardHistory');
+const RetailerApplication = require('../models/RetailerApplication');
+const RetailerProduct = require('../models/RetailerProduct');
 const ApiError = require('../utils/ApiError');
 
 const isObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -23,6 +25,10 @@ exports.getOverview = async (req, res, next) => {
       totalVouchers,
       redeemedVouchers,
       pointsAwarded,
+      totalRetailerApplications,
+      pendingRetailerApplications,
+      approvedRetailerApplications,
+      totalRetailerProducts,
     ] = await Promise.all([
       User.countDocuments(),
       User.countDocuments({ isActive: true }),
@@ -33,6 +39,10 @@ exports.getOverview = async (req, res, next) => {
       RewardHistory.aggregate([
         { $group: { _id: null, total: { $sum: '$points' } } },
       ]),
+      RetailerApplication.countDocuments(),
+      RetailerApplication.countDocuments({ status: 'pending' }),
+      RetailerApplication.countDocuments({ status: 'approved' }),
+      RetailerProduct.countDocuments(),
     ]);
 
     const recentRewardEvents = await RewardHistory.find()
@@ -51,6 +61,10 @@ exports.getOverview = async (req, res, next) => {
         totalVouchers,
         redeemedVouchers,
         pointsAwarded: Number(pointsAwarded?.[0]?.total || 0),
+        totalRetailerApplications,
+        pendingRetailerApplications,
+        approvedRetailerApplications,
+        totalRetailerProducts,
         recentRewardEvents: recentRewardEvents.map((item) => ({
           id: String(item._id),
           user: item.userId?.fullName || 'Unknown',
@@ -387,6 +401,224 @@ exports.updateVoucherUnlock = async (req, res, next) => {
       voucher: {
         id: String(voucher._id),
         unlocked: voucher.unlocked,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getRetailerApplications = async (req, res, next) => {
+  try {
+    const status = String(req.query.status || 'all').trim().toLowerCase();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(5, Number(req.query.limit) || 20));
+    const search = String(req.query.search || '').trim();
+
+    const filter = {};
+
+    if (['pending', 'approved', 'rejected'].includes(status)) {
+      filter.status = status;
+    }
+
+    if (search) {
+      filter.$or = [
+        { brandName: { $regex: search, $options: 'i' } },
+        { contactName: { $regex: search, $options: 'i' } },
+        { contactEmail: { $regex: search, $options: 'i' } },
+        { website: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [total, rows] = await Promise.all([
+      RetailerApplication.countDocuments(filter),
+      RetailerApplication.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate('ownerUserId', 'fullName email')
+        .populate('reviewedBy', 'fullName email')
+        .lean(),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      retailers: rows.map((row) => ({
+        id: String(row._id),
+        ownerUserId: String(row.ownerUserId?._id || ''),
+        ownerName: row.ownerUserId?.fullName || 'Unknown',
+        ownerEmail: row.ownerUserId?.email || '',
+        brandName: row.brandName,
+        contactName: row.contactName,
+        contactEmail: row.contactEmail,
+        contactPhone: row.contactPhone || '',
+        website: row.website || '',
+        categories: Array.isArray(row.categories) ? row.categories : [],
+        description: row.description || '',
+        status: row.status,
+        reviewedByName: row.reviewedBy?.fullName || '',
+        reviewedByEmail: row.reviewedBy?.email || '',
+        reviewedAt: formatDateTime(row.reviewedAt),
+        reviewNote: row.reviewNote || '',
+        createdAt: formatDateTime(row.createdAt),
+        updatedAt: formatDateTime(row.updatedAt),
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.reviewRetailerApplication = async (req, res, next) => {
+  try {
+    const { retailerId } = req.params;
+    if (!isObjectId(retailerId)) {
+      return next(new ApiError('Invalid retailer application id', 400));
+    }
+
+    const status = String(req.body?.status || '').trim().toLowerCase();
+    if (!['approved', 'rejected'].includes(status)) {
+      return next(new ApiError('status must be either approved or rejected', 400));
+    }
+
+    const reviewNote = String(req.body?.reviewNote || '').trim();
+
+    const application = await RetailerApplication.findById(retailerId);
+    if (!application) {
+      return next(new ApiError('Retailer application not found', 404));
+    }
+
+    application.status = status;
+    application.reviewNote = reviewNote;
+    application.reviewedBy = req.user._id;
+    application.reviewedAt = new Date();
+    await application.save();
+
+    return res.status(200).json({
+      success: true,
+      retailer: {
+        id: String(application._id),
+        status: application.status,
+        reviewNote: application.reviewNote,
+        reviewedAt: application.reviewedAt,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.getRetailerProducts = async (req, res, next) => {
+  try {
+    const status = String(req.query.status || 'all').trim().toLowerCase();
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(5, Number(req.query.limit) || 20));
+    const search = String(req.query.search || '').trim();
+
+    const filter = {};
+
+    if (status === 'active') {
+      filter.isActive = true;
+    } else if (status === 'inactive') {
+      filter.isActive = false;
+    }
+
+    if (search) {
+      filter.$or = [
+        { brandName: { $regex: search, $options: 'i' } },
+        { name: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const [total, rows] = await Promise.all([
+      RetailerProduct.countDocuments(filter),
+      RetailerProduct.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate('ownerUserId', 'fullName email')
+        .lean(),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      products: rows.map((row) => ({
+        id: String(row._id),
+        ownerUserId: String(row.ownerUserId?._id || ''),
+        ownerName: row.ownerUserId?.fullName || 'Unknown',
+        ownerEmail: row.ownerUserId?.email || '',
+        brandName: row.brandName,
+        name: row.name,
+        category: row.category,
+        description: row.description || '',
+        image: row.image || '',
+        productUrl: row.productUrl || '',
+        price: Number(row.price) || 0,
+        currency: row.currency || 'GBP',
+        stock: Number(row.stock) || 0,
+        isActive: Boolean(row.isActive),
+        isApprovedByAdmin: Boolean(row.isApprovedByAdmin),
+        createdAt: formatDateTime(row.createdAt),
+        updatedAt: formatDateTime(row.updatedAt),
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
+exports.updateRetailerProductModeration = async (req, res, next) => {
+  try {
+    const { productId } = req.params;
+    if (!isObjectId(productId)) {
+      return next(new ApiError('Invalid retailer product id', 400));
+    }
+
+    const row = await RetailerProduct.findById(productId);
+    if (!row) {
+      return next(new ApiError('Retailer product not found', 404));
+    }
+
+    const hasIsActive = Object.prototype.hasOwnProperty.call(req.body || {}, 'isActive');
+    const hasIsApprovedByAdmin = Object.prototype.hasOwnProperty.call(req.body || {}, 'isApprovedByAdmin');
+
+    if (hasIsActive && typeof req.body.isActive !== 'boolean') {
+      return next(new ApiError('isActive must be boolean when provided', 400));
+    }
+
+    if (hasIsApprovedByAdmin && typeof req.body.isApprovedByAdmin !== 'boolean') {
+      return next(new ApiError('isApprovedByAdmin must be boolean when provided', 400));
+    }
+
+    if (hasIsActive) {
+      row.isActive = req.body.isActive;
+    }
+
+    if (hasIsApprovedByAdmin) {
+      row.isApprovedByAdmin = req.body.isApprovedByAdmin;
+    }
+
+    await row.save();
+
+    return res.status(200).json({
+      success: true,
+      product: {
+        id: String(row._id),
+        isActive: row.isActive,
+        isApprovedByAdmin: row.isApprovedByAdmin,
       },
     });
   } catch (error) {

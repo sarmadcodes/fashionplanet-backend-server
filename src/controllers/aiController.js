@@ -10,6 +10,7 @@ const {
   generateOutfitWithAi,
   generateOutfitImageWithAi,
   generateStyleAvatarImageWithAi,
+  generateVirtualTryOnImageWithAi,
   generateInsightsWithAi,
 } = require('../services/aiService');
 const { getWeather } = require('../services/weatherService');
@@ -578,6 +579,124 @@ exports.generateStyleAvatar = async (req, res, next) => {
   }
 };
 
+exports.generateVirtualTryOn = async (req, res, next) => {
+  try {
+    const { itemId, forceFresh = false } = req.body || {};
+    const userId = req.user._id;
+    const bypassRecentCache = toBool(forceFresh, false);
+
+    if (!itemId) {
+      return next(new ApiError('itemId is required for virtual try-on.', 400));
+    }
+
+    if (!isAiConfigured()) {
+      return next(new ApiError('AI is not configured on the server yet. Please add OPENAI_API_KEY and restart backend.', 503));
+    }
+
+    const wardrobeItem = await WardrobeItem.findOne({ _id: itemId, userId });
+    if (!wardrobeItem) {
+      return next(new ApiError('Wardrobe item not found for try-on.', 404));
+    }
+
+    const cacheWindowStart = new Date(Date.now() - RECENT_RESULT_CACHE_MS);
+    if (!bypassRecentCache) {
+      const recentEvent = await AIEvent.findOne({
+        userId,
+        type: 'generate_tryon',
+        createdAt: { $gte: cacheWindowStart },
+        'context.itemId': String(wardrobeItem._id),
+      })
+        .sort({ createdAt: -1 })
+        .select('result createdAt')
+        .lean();
+
+      if (recentEvent?.result?.generatedImage) {
+        return res.status(200).json({
+          success: true,
+          data: {
+            ...recentEvent.result,
+            generationId: recentEvent._id,
+            cacheHit: true,
+          },
+        });
+      }
+    }
+
+    const aiImage = await generateVirtualTryOnImageWithAi({
+      userProfile: req.user,
+      wardrobeItem,
+    });
+
+    if (aiImage?.isFallback || !aiImage?.image) {
+      const reasonSuffix = aiImage?.fallbackReason ? ` Details: ${aiImage.fallbackReason}.` : '';
+      return next(new ApiError(`AI try-on generation service is temporarily unavailable.${reasonSuffix} Please try again shortly.`, 502));
+    }
+
+    const persisted = await uploadGeneratedImageToCloudinary({ image: aiImage.image, userId });
+
+    const outfitDoc = await Outfit.create({
+      userId,
+      title: `Virtual Try-On: ${String(wardrobeItem.name || 'Wardrobe Item').trim()}`,
+      items: [wardrobeItem._id],
+      tags: ['ai-generated', 'virtual-try-on', toSafeTag(wardrobeItem.category || 'item')].filter(Boolean),
+      image: persisted?.url || aiImage.image || null,
+      source: 'ai',
+      aiMeta: {
+        generationId: null,
+        occasion: 'virtual-try-on',
+        preferredWeather: null,
+        weatherNote: null,
+        explanation: 'AI virtual try-on preview generated for selected wardrobe item.',
+        tips: ['Use virtual try-on previews to validate fit and layering before posting.'],
+        newSuggestion: null,
+        itemNames: [String(wardrobeItem.name || '').trim()].filter(Boolean),
+        cloudinaryPublicId: persisted?.publicId || null,
+      },
+    });
+
+    const outfitsCount = await Outfit.countDocuments({ userId });
+    await User.findByIdAndUpdate(userId, { outfitsCount });
+
+    const responsePayload = {
+      title: outfitDoc.title,
+      itemId: String(wardrobeItem._id),
+      itemName: wardrobeItem.name,
+      generatedImage: persisted?.url || aiImage.image || null,
+      savedOutfitId: String(outfitDoc._id),
+      source: 'ai',
+      isFallback: false,
+      fallbackReason: null,
+    };
+
+    const event = await AIEvent.create({
+      userId,
+      type: 'generate_tryon',
+      context: {
+        itemId: String(wardrobeItem._id),
+        itemName: wardrobeItem.name,
+        category: wardrobeItem.category,
+      },
+      result: responsePayload,
+    });
+
+    await Outfit.findByIdAndUpdate(outfitDoc._id, {
+      $set: {
+        'aiMeta.generationId': event._id,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...responsePayload,
+        generationId: event._id,
+      },
+    });
+  } catch (error) {
+    return next(error);
+  }
+};
+
 exports.logOutfitFeedback = async (req, res, next) => {
   try {
     const { generationId, action } = req.body || {};
@@ -627,8 +746,9 @@ exports.getAiStats = async (req, res, next) => {
   try {
     const userId = req.user._id;
 
-    const [generatedCount, feedbackEvents] = await Promise.all([
+    const [generatedCount, generatedTryOnCount, feedbackEvents] = await Promise.all([
       AIEvent.countDocuments({ userId, type: 'generate_outfit' }),
+      AIEvent.countDocuments({ userId, type: 'generate_tryon' }),
       AIEvent.find({ userId, type: 'outfit_feedback' }).select('action').lean(),
     ]);
 
@@ -644,7 +764,7 @@ exports.getAiStats = async (req, res, next) => {
       success: true,
       data: {
         outfitsGenerated: generatedCount,
-        tryOns: wornCount,
+        tryOns: generatedTryOnCount,
         matchScore,
       },
     });

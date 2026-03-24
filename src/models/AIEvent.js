@@ -4,7 +4,7 @@ const aiEventSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   type: {
     type: String,
-    enum: ['generate_outfit', 'generate_avatar', 'outfit_feedback', 'item_tagged'],
+    enum: ['generate_outfit', 'generate_avatar', 'generate_tryon', 'outfit_feedback', 'item_tagged'],
     required: true,
   },
   context: { type: Object, default: {} },

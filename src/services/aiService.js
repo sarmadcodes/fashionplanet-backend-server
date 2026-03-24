@@ -814,6 +814,83 @@ const generateStyleAvatarImageWithAi = async ({
   }
 };
 
+const generateVirtualTryOnImageWithAi = async ({
+  userProfile = {},
+  wardrobeItem = {},
+}) => {
+  if (!openai) {
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: 'AI provider not configured',
+    };
+  }
+
+  const safeItemName = String(wardrobeItem?.name || 'wardrobe item').trim().slice(0, 80);
+  const safeCategory = String(wardrobeItem?.category || 'fashion piece').trim().slice(0, 40);
+  const safeColor = String(wardrobeItem?.color || '').trim().slice(0, 30);
+  const safeSeason = String(wardrobeItem?.season || '').trim().slice(0, 30);
+
+  const styleTypes = Array.isArray(userProfile?.styleTypes)
+    ? userProfile.styleTypes.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 6)
+    : [];
+
+  const prompt = [
+    'Create one photorealistic full-body virtual try-on fashion image of one adult model.',
+    'Use the provided wearer profile and garment description to produce a realistic and modest result.',
+    `Wearer context: gender ${String(userProfile?.gender || 'prefer-not-to-say')}, top size ${String(userProfile?.sizeTop || 'unknown')}, bottom size ${String(userProfile?.sizeBottom || 'unknown')}, shoe size ${String(userProfile?.shoeSize || 'unknown')}.`,
+    styleTypes.length ? `Style preference keywords: ${styleTypes.join(', ')}.` : null,
+    `Garment to try on: ${safeItemName} (${safeCategory}${safeColor ? `, ${safeColor}` : ''}${safeSeason ? `, ${safeSeason}` : ''}).`,
+    'Requirements:',
+    '- realistic drape and fit for the garment category',
+    '- one complete frame from head to toe',
+    '- natural lighting and clean background',
+    '- no collage, no text, no logo, no watermark',
+    '- no explicit content, no violence, no suggestive pose',
+    '- one final image only',
+  ].filter(Boolean).join('\n');
+
+  const model = String(process.env.OPENAI_TRYON_IMAGE_MODEL || 'dall-e-2').trim();
+  const size = String(process.env.OPENAI_TRYON_IMAGE_SIZE || '512x512').trim();
+
+  try {
+    const response = await openai.images.generate({
+      model,
+      prompt,
+      size,
+    });
+
+    const first = response?.data?.[0] || null;
+    if (typeof first?.url === 'string' && first.url.trim()) {
+      return {
+        image: first.url.trim(),
+        isFallback: false,
+        fallbackReason: null,
+      };
+    }
+
+    if (typeof first?.b64_json === 'string' && first.b64_json.trim()) {
+      return {
+        image: `data:image/png;base64,${first.b64_json.trim()}`,
+        isFallback: false,
+        fallbackReason: null,
+      };
+    }
+
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: `Image response missing payload for model ${model} (size ${size})`,
+    };
+  } catch (error) {
+    return {
+      image: null,
+      isFallback: true,
+      fallbackReason: String(error?.message || 'AI try-on generation failed').trim(),
+    };
+  }
+};
+
 const generateInsightsWithAi = async (summary) => {
   const fallback = {
     insights: ['Your wardrobe usage data is still growing. Keep logging outfits for better insights.'],
@@ -871,6 +948,7 @@ module.exports = {
   generateOutfitWithAi,
   generateOutfitImageWithAi,
   generateStyleAvatarImageWithAi,
+  generateVirtualTryOnImageWithAi,
   generateInsightsWithAi,
   buildRuleBasedOutfit,
 };

@@ -14,6 +14,14 @@ const sanitizeUser = (user) => ({
   itemsCount: user.itemsCount,
   outfitsCount: user.outfitsCount,
   accountVisibility: user.accountVisibility,
+  gender: user.gender,
+  sizeTop: user.sizeTop,
+  sizeBottom: user.sizeBottom,
+  shoeSize: user.shoeSize,
+  city: user.city,
+  country: user.country,
+  location: user.location,
+  onboardingCompleted: user.onboardingCompleted,
   notificationPrefs: user.notificationPrefs,
   privacyPrefs: user.privacyPrefs,
   styleTypes: user.styleTypes,
@@ -23,7 +31,19 @@ const sanitizeUser = (user) => ({
 
 exports.register = async (req, res, next) => {
   try {
-    const { fullName, email, password } = req.body;
+    const {
+      fullName,
+      email,
+      password,
+      gender,
+      sizeTop,
+      sizeBottom,
+      shoeSize,
+      city,
+      country,
+      location,
+      styleTypes,
+    } = req.body;
 
     if (!fullName || !email || !password) {
       return next(new ApiError('Please provide full name, email and password', 400));
@@ -35,10 +55,44 @@ exports.register = async (req, res, next) => {
     }
 
     const existingUsersCount = await User.countDocuments();
+
+    const normalizedStyles = Array.isArray(styleTypes)
+      ? styleTypes.map((style) => String(style || '').trim()).filter(Boolean).slice(0, 8)
+      : [];
+
+    const normalizedLocation = location && typeof location === 'object'
+      ? {
+        lat: Number.isFinite(Number(location.lat)) ? Number(location.lat) : null,
+        lon: Number.isFinite(Number(location.lon)) ? Number(location.lon) : null,
+        label: String(location.label || '').trim(),
+      }
+      : { lat: null, lon: null, label: '' };
+
+    const normalizedGender = ['female', 'male', 'non-binary', 'prefer-not-to-say', 'other']
+      .includes(String(gender || '').trim())
+      ? String(gender).trim()
+      : 'prefer-not-to-say';
+
     const user = await User.create({
       fullName,
       email,
       password,
+      gender: normalizedGender,
+      sizeTop: String(sizeTop || '').trim(),
+      sizeBottom: String(sizeBottom || '').trim(),
+      shoeSize: String(shoeSize || '').trim(),
+      city: String(city || '').trim(),
+      country: String(country || '').trim(),
+      location: normalizedLocation,
+      styleTypes: normalizedStyles,
+      onboardingCompleted: Boolean(
+        normalizedStyles.length
+          || String(sizeTop || '').trim()
+          || String(sizeBottom || '').trim()
+          || String(shoeSize || '').trim()
+          || String(city || '').trim()
+          || String(country || '').trim()
+      ),
       role: existingUsersCount === 0 ? 'admin' : 'user',
     });
     const token = generateToken(user._id);

@@ -87,6 +87,7 @@ app.use('/api/weekplan', require('./src/routes/weekplanRoutes'));
 app.use('/api/ai', require('./src/routes/aiRoutes'));
 app.use('/api/home', require('./src/routes/homeRoutes'));
 app.use('/api/admin', require('./src/routes/adminRoutes'));
+app.use('/api/retailers', require('./src/routes/retailerRoutes'));
 
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });

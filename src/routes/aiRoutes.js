@@ -5,6 +5,7 @@ const {
 	tagWardrobeItem,
 	generateOutfit,
 	generateStyleAvatar,
+	generateVirtualTryOn,
 	logOutfitFeedback,
 	getAiStats,
 	getWardrobeInsights,
@@ -16,6 +17,7 @@ router.get('/stats', getAiStats);
 router.post('/tag-item/:itemId', tagWardrobeItem);
 router.post('/generate-outfit', enforceDailyOutfitLimit, generateOutfit);
 router.post('/generate-style-avatar', enforceDailyOutfitLimit, generateStyleAvatar);
+router.post('/virtual-try-on', enforceDailyOutfitLimit, generateVirtualTryOn);
 router.post('/feedback', logOutfitFeedback);
 router.post('/wardrobe-insights', getWardrobeInsights);
 

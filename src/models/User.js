@@ -41,6 +41,22 @@ const userSchema = new mongoose.Schema({
     enum: ['public', 'private', 'hidden'],
     default: 'public',
   },
+  gender: {
+    type: String,
+    enum: ['female', 'male', 'non-binary', 'prefer-not-to-say', 'other'],
+    default: 'prefer-not-to-say',
+  },
+  sizeTop: { type: String, default: '', trim: true },
+  sizeBottom: { type: String, default: '', trim: true },
+  shoeSize: { type: String, default: '', trim: true },
+  city: { type: String, default: '', trim: true },
+  country: { type: String, default: '', trim: true },
+  location: {
+    lat: { type: Number, default: null },
+    lon: { type: Number, default: null },
+    label: { type: String, default: '', trim: true },
+  },
+  onboardingCompleted: { type: Boolean, default: false },
   styleTypes: [{ type: String }],
   savedPosts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
   notificationPrefs: {

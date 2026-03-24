@@ -11,6 +11,10 @@ const {
   getVouchers,
   getRewardEvents,
   updateVoucherUnlock,
+  getRetailerApplications,
+  reviewRetailerApplication,
+  getRetailerProducts,
+  updateRetailerProductModeration,
 } = require('../controllers/adminController');
 
 router.use(protect, requireAdmin);
@@ -23,6 +27,11 @@ router.post('/users/:userId/points', adjustUserPoints);
 
 router.get('/vouchers', getVouchers);
 router.patch('/vouchers/:voucherId/unlock', updateVoucherUnlock);
+
+router.get('/retailers', getRetailerApplications);
+router.patch('/retailers/:retailerId/review', reviewRetailerApplication);
+router.get('/retailer-products', getRetailerProducts);
+router.patch('/retailer-products/:productId/moderation', updateRetailerProductModeration);
 
 router.get('/rewards', getRewardEvents);
 
